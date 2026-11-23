@@ -45,6 +45,28 @@ class DocVersionService(BaseModuleService):
         entity_count = len(entities)
         triple_count = len(graph)
 
+        # 构建可验证的来源清单：登记本快照各产物文件的确切归属、记录数与校验值，
+        # 供结果交付做归属校验，防止邻近编号或历史混入文件越权进入交付范围。
+        manifest = []
+        for category, sub_dir, filename in [
+            ("parsed", "parsed", f"{doc_id}_parsed.jsonl"),
+            ("chunks", "chunks", f"{doc_id}_parsed_chunks.jsonl"),
+            ("entities", "entities", f"{doc_id}_parsed_entities.jsonl"),
+            ("relations", "relations", f"{doc_id}_parsed_relations.jsonl"),
+            ("graph", "graph", f"{doc_id}_parsed_graph.jsonl"),
+            ("vectors", "vectors", f"{doc_id}_parsed_vectors.jsonl"),
+        ]:
+            artifact_path = self._data_dir(sub_dir) / filename
+            if not artifact_path.exists():
+                continue
+            content = artifact_path.read_text(encoding="utf-8")
+            manifest.append({
+                "category": category,
+                "path": f"{sub_dir}/{filename}",
+                "records": sum(1 for line in content.splitlines() if line.strip()),
+                "checksum": self._compute_checksum(content),
+            })
+
         # 计算变更摘要
         previous_snapshots = sorted(
             self._data_dir("versions").glob(f"{doc_id}_v*.jsonl"),
@@ -77,6 +99,7 @@ class DocVersionService(BaseModuleService):
             "实体数量": entity_count,
             "生成方式": "自动",
             "生成时间": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "来源清单": manifest,
         }
 
         output_path = self._data_dir("versions") / f"{doc_id}_v{version}.jsonl"
@@ -90,6 +113,7 @@ class DocVersionService(BaseModuleService):
             "entities": entity_count,
             "triples": triple_count,
             "change_summary": change_summary,
+            "manifest_entries": len(manifest),
         })
 
         # 跨模块触发：结果交付
@@ -105,6 +129,7 @@ class DocVersionService(BaseModuleService):
             "chunks": chunk_count,
             "entities": entity_count,
             "triples": triple_count,
+            "manifest": manifest,
             "triggers": triggers,
         }
 
